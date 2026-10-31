@@ -6,9 +6,9 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.provider.Settings;
 
-/** SHARP picture control consumed by the TV's existing privileged settings service. */
+/** SHARP panel-backlight control consumed by the TV's existing privileged settings service. */
 final class TvBrightness {
-    static final String KEY = "picture_brightness";
+    static final String KEY = "picture_backlight";
     private final Context context;
 
     static boolean required() {
@@ -27,11 +27,11 @@ final class TvBrightness {
     }
 
     void set(int percent) {
-        if (!canWrite()) throw new SecurityException("TV picture control needs WRITE_SECURE_SETTINGS");
+        if (!canWrite()) throw new SecurityException("TV backlight control needs WRITE_SECURE_SETTINGS");
         if (percent < 0 || percent > 100) throw new IllegalArgumentException("Brightness outside the TV range");
-        // TVMenuSettingsService watches this exact Global URI, maps it to g_video__brightness,
+        // TVMenuSettingsService watches this exact Global URI, maps it to g_disp__disp_back_light,
         // and applies/saves it through its native API under the system service's own permissions.
-        // No other picture, backlight, automatic-mode or system setting is changed here.
+        // No picture processing, automatic-mode or other system setting is changed here.
         if (!Settings.Global.putInt(context.getContentResolver(), KEY, percent))
             throw new IllegalStateException("TV picture setting was rejected");
         if (level() != percent) throw new IllegalStateException("TV picture setting did not update");

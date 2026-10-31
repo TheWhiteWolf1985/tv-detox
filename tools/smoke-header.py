@@ -1,6 +1,7 @@
 """Remote UI checks on an explicitly selected TV. Temporarily changes/restores volume and brightness.
 
-Run only with device-test authorization. The package defaults to the separate preview app.
+Run only with fresh device-test authorization. The package defaults to the separate preview app.
+The user requested manual physical testing on 2026-10-31: do not run this script during those tests.
 """
 import argparse
 import json
@@ -58,7 +59,7 @@ def capture(name):
 require(adb('shell', 'getprop', 'ro.product.model') == args.model, 'Device model matches')
 native_brightness = args.model == 'AQUOS_TVE19A'
 brightness_table = 'global' if native_brightness else 'system'
-brightness_key = 'picture_brightness' if native_brightness else 'screen_brightness'
+brightness_key = 'picture_backlight' if native_brightness else 'screen_brightness'
 original_brightness = adb('shell', 'settings', 'get', brightness_table, brightness_key)
 original_android_brightness = adb('shell', 'settings', 'get', 'system', 'screen_brightness')
 original_home = adb('shell', 'cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME')

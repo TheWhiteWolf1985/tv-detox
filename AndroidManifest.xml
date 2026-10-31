@@ -8,7 +8,7 @@
     <!-- Quick settings: media volume and the standard Android screen-brightness control. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
-    <!-- Explicit adb grant needed on SHARP for the TV's Global picture-brightness control. -->
+    <!-- Explicit adb grant needed on SHARP for the TV's Global panel-backlight control. -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <!-- Android 11+ only shows apps a home screen asks to see: TV apps and normal apps. -->
     <queries>

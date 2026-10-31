@@ -217,7 +217,9 @@ public class MainActivity extends Activity {
         content.topMargin = px(QuickHeader.HEIGHT);
         content.rightMargin = px(SIDEBAR_WIDTH);
         screen.addView(scroller, content);
-        screen.addView(createInputSidebar(), new FrameLayout.LayoutParams(px(SIDEBAR_WIDTH), -1, Gravity.END));
+        FrameLayout.LayoutParams sidebar = new FrameLayout.LayoutParams(px(SIDEBAR_WIDTH), -1, Gravity.END);
+        sidebar.topMargin = px(QuickHeader.HEIGHT);
+        screen.addView(createInputSidebar(), sidebar);
         header = new QuickHeader(this, clockPref, () -> open(PLAY_STORE), this::openTvSettings, this::openBrightness);
         screen.addView(header, new FrameLayout.LayoutParams(-1, px(QuickHeader.HEIGHT), Gravity.TOP));
         setContentView(screen);
@@ -510,11 +512,7 @@ public class MainActivity extends Activity {
 
     private FrameLayout createInputSidebar() {
         FrameLayout pane = new FrameLayout(this);
-        pane.setPadding(0, px(QuickHeader.HEIGHT), 0, 0);
-        pane.setBackgroundColor(0x99151C26);
-        View divider = new View(this);
-        divider.setBackgroundColor(0x20FFFFFF);
-        pane.addView(divider, new FrameLayout.LayoutParams(Math.max(1, px(1)), -1, Gravity.START));
+        pane.setBackground(GlassSurface.panel(getResources().getDisplayMetrics().widthPixels / 1920f, false));
         inputTitle = text(px(28), Color.WHITE, semibold);
         pane.addView(inputTitle, at(px(44), px(24), px(332), px(44)));
         ScrollView scroll = new ScrollView(this);

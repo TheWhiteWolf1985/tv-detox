@@ -16,6 +16,14 @@ The SHARP registered nine inputs at preparation time: four HDMI ports, PlayStati
 
 Preview 5 was built, signed and installed on the SHARP on 31 October 2026. Directional navigation reached all nine sidebar entries, scrolled vertically through the last tuner, returned to the app area with Left and preserved header Up/Down navigation. Screenshots verified removal of the duplicate status elements and the fixed header. The app launched successfully with no crash-buffer entries. These checks did not activate inputs or change volume/backlight levels; physical input activation and user acceptance of the new layout remain pending.
 
+Later on 31 October 2026, the user personally confirmed that the sidebar worked well and that inputs opened correctly. This supplies user-reported acceptance of the preview-5 input navigation and launch behavior.
+
+## Glass chrome (preview 6)
+
+The closed header and input sidebar use the same `GlassSurface` palette: a translucent grey tint, a faint diagonal sheen and a one-pixel edge at 1080p. Each surface uses one native `GradientDrawable`; there is no live blur, wallpaper capture, off-screen bitmap, extra rendering layer or continuous effect animation. The header keeps a brighter focused state for remote navigation. The sidebar starts below the header so their translucent backgrounds never overlap and darken the top-right corner. Input tiles, navigation and quick-setting behavior are unchanged.
+
+Preview 6 was built, signed and installed on the SHARP. Directional checks reached the last input and returned to the main area/header; screenshots confirmed the normal and focused surfaces. Backlight and retained preview permissions were unchanged. An idle two-second sample added no rendered frames. A navigation sample showed slow frames, so it is not evidence of a frame-rate improvement or a comparative performance result. Visual acceptance of this finish remains with the user.
+
 Quick settings contain media volume, brightness, mute, Play Store and the TV's Settings. Volume and brightness are read again when the panel opens and after external changes. Volume follows Android's fixed-volume policy.
 
 On SHARP AQUOS_TVE19A, `screen_brightness` is stored by Android without a visible panel change (confirmed by the user). Preview 3 used `Settings.Global.picture_brightness`, which the native service maps to picture processing (`g_video__brightness`). The user also observed no visible Home change with that path and clarified that the slider must control the physical light of the entire TV, including apps and HDMI.

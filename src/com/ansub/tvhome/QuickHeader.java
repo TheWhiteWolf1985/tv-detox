@@ -77,8 +77,10 @@ final class QuickHeader extends LinearLayout {
         setFocusable(true);
         setClickable(true);
         setId(View.generateViewId());
-        setBackgroundColor(0xF5161D29);
-        setOnFocusChangeListener((v, focused) -> setBackgroundColor(focused ? 0xFF30465E : 0xF5161D29));
+        Drawable restingGlass = GlassSurface.panel(scale, false);
+        Drawable focusedGlass = GlassSurface.panel(scale, true);
+        setBackground(restingGlass);
+        setOnFocusChangeListener((v, focused) -> setBackground(focused ? focusedGlass : restingGlass));
         setOnClickListener(v -> open());
 
         time = text(30, Color.WHITE);

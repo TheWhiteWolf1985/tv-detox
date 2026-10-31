@@ -13,6 +13,13 @@ function Run([string]$Command, [string[]]$Arguments) {
 $bt = Join-Path $Sdk "build-tools\$BuildTools"
 $jar = Join-Path $Sdk 'platforms\android-34\android.jar'
 $out = Join-Path (Get-Location) 'out\preview'
+foreach ($dir in @('classes','dex','gen')) {
+    $generated = [IO.Path]::GetFullPath((Join-Path $out $dir))
+    if (-not $generated.StartsWith($out + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Generated-directory path escaped the preview workspace'
+    }
+    if (Test-Path -LiteralPath $generated) { Remove-Item -LiteralPath $generated -Recurse -Force }
+}
 foreach ($dir in @('classes','dex','gen\com\ansub\tvhome')) {
     New-Item -ItemType Directory -Force (Join-Path $out $dir) | Out-Null
 }
@@ -20,7 +27,7 @@ foreach ($dir in @('classes','dex','gen\com\ansub\tvhome')) {
 [xml]$manifest = Get-Content -LiteralPath 'AndroidManifest.xml' -Raw
 $ns = 'http://schemas.android.com/apk/res/android'
 $manifest.manifest.SetAttribute('package', $Package)
-$manifest.manifest.SetAttribute('versionName', $ns, '1.5.7-header-preview.1')
+$manifest.manifest.SetAttribute('versionName', $ns, '1.5.7-header-preview.3')
 $manifest.manifest.application.SetAttribute('label', $ns, 'TV Detox Anteprima')
 $manifest.manifest.application.SetAttribute('debuggable', $ns, 'true')
 foreach ($node in $manifest.SelectNodes('//activity|//service')) {

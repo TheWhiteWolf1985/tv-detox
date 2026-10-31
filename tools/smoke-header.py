@@ -56,7 +56,11 @@ def capture(name):
     adb('shell', 'rm', remote)
 
 require(adb('shell', 'getprop', 'ro.product.model') == args.model, 'Device model matches')
-original_brightness = adb('shell', 'settings', 'get', 'system', 'screen_brightness')
+native_brightness = args.model == 'AQUOS_TVE19A'
+brightness_table = 'global' if native_brightness else 'system'
+brightness_key = 'picture_brightness' if native_brightness else 'screen_brightness'
+original_brightness = adb('shell', 'settings', 'get', brightness_table, brightness_key)
+original_android_brightness = adb('shell', 'settings', 'get', 'system', 'screen_brightness')
 original_home = adb('shell', 'cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME')
 original_disabled = adb('shell', 'pm', 'list', 'packages', '-d')
 adb('shell', 'am', 'force-stop', package)
@@ -88,15 +92,18 @@ key(20)
 root = tree()
 require('Luminosità' in focused(root).get('content-desc', ''), 'Down selects brightness')
 key(22)
-changed = adb('shell', 'settings', 'get', 'system', 'screen_brightness')
+changed = adb('shell', 'settings', 'get', brightness_table, brightness_key)
 try:
     require(changed != original_brightness, 'Brightness setting changes through the app')
     key(21)
-    require(adb('shell', 'settings', 'get', 'system', 'screen_brightness') == original_brightness,
+    require(adb('shell', 'settings', 'get', brightness_table, brightness_key) == original_brightness,
             'Brightness restored through the app')
 finally:
-    if adb('shell', 'settings', 'get', 'system', 'screen_brightness') != original_brightness:
-        adb('shell', 'settings', 'put', 'system', 'screen_brightness', original_brightness)
+    if adb('shell', 'settings', 'get', brightness_table, brightness_key) != original_brightness:
+        adb('shell', 'settings', 'put', brightness_table, brightness_key, original_brightness)
+if native_brightness:
+    require(adb('shell', 'settings', 'get', 'system', 'screen_brightness') == original_android_brightness,
+            'SHARP control leaves the ineffective Android brightness setting untouched')
 key(20)
 root = tree()
 require(focused(root).get('text') == 'Muto', 'Down selects mute')
@@ -127,6 +134,7 @@ root = tree()
 require(text_exists(root, 'Impostazioni rapide'), 'Shade left open for user testing')
 capture('header-open.png')
 (output / 'runtime-checks.json').write_text(json.dumps({'checks': checks, 'brightness_before': original_brightness,
-    'brightness_after': adb('shell', 'settings', 'get', 'system', 'screen_brightness'),
+    'brightness_after': adb('shell', 'settings', 'get', brightness_table, brightness_key),
+    'brightness_backend': brightness_table + '/' + brightness_key,
     'note': 'Readback verifies Android values; perceived audio and physical panel brightness need user confirmation.'}, indent=2), encoding='utf-8')
 print(json.dumps({'passed': len(checks), 'output': str(output)}, indent=2))

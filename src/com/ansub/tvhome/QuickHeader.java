@@ -49,6 +49,7 @@ final class QuickHeader extends LinearLayout {
     private final ConnectivityManager network;
     private final Runnable store, settings, picture;
     private final String clockPreference;
+    private final TvBrightness tvBrightness;
     private final TextView time, date;
     private final ImageView connection, speaker;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -69,6 +70,7 @@ final class QuickHeader extends LinearLayout {
         scale = getResources().getDisplayMetrics().widthPixels / 1920f;
         audio = (AudioManager) activity.getSystemService(Context.AUDIO_SERVICE);
         network = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+        tvBrightness = TvBrightness.required() ? new TvBrightness(activity) : null;
         setOrientation(HORIZONTAL);
         setGravity(Gravity.CENTER_VERTICAL);
         setPadding(px(64), 0, px(64), 0);
@@ -139,9 +141,12 @@ final class QuickHeader extends LinearLayout {
         filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         filter.addAction("android.media.VOLUME_CHANGED_ACTION");
         filter.addAction("android.media.STREAM_MUTE_CHANGED_ACTION");
+        filter.addAction("com.android.tv.settings.partnercustomizer.tvsettingservice.notify_back_light");
         if (Build.VERSION.SDK_INT >= 33) activity.registerReceiver(changed, filter, Context.RECEIVER_NOT_EXPORTED);
         else activity.registerReceiver(changed, filter);
         activity.getContentResolver().registerContentObserver(Settings.System.CONTENT_URI, true, brightnessChanged);
+        if (tvBrightness != null) activity.getContentResolver().registerContentObserver(
+                Settings.Global.getUriFor(TvBrightness.KEY), false, brightnessChanged);
         if (network != null) try {
             if (Build.VERSION.SDK_INT >= 24) network.registerDefaultNetworkCallback(networkChanged);
             else network.registerNetworkCallback(new NetworkRequest.Builder().build(), networkChanged);
@@ -244,9 +249,9 @@ final class QuickHeader extends LinearLayout {
         brightness.setId(View.generateViewId());
         volume.setNextFocusDownId(brightness.getId());
         brightness.setNextFocusUpId(volume.getId());
-        brightness.setMax(99); // 1..100%, avoiding a black screen
+        brightness.setMax(tvBrightness == null ? 99 : 100);
         brightness.setKeyProgressIncrement(5);
-        brightness.setOnSeekBarChangeListener(listener(value -> changeBrightness(value + 1)));
+        brightness.setOnSeekBarChangeListener(listener(value -> changeBrightness(value + (tvBrightness == null ? 1 : 0))));
 
         LinearLayout actions = new LinearLayout(activity);
         actions.setGravity(Gravity.CENTER);
@@ -383,6 +388,18 @@ final class QuickHeader extends LinearLayout {
         volume.setContentDescription(volumeValue.getText());
         mute.setText(label(muted ? "Unmute" : "Mute", muted ? "Attiva audio" : "Muto"));
         mute.setEnabled(!fixed);
+        if (tvBrightness != null) {
+            int level = tvBrightness.level();
+            boolean available = level >= 0 && level <= 100 && tvBrightness.canWrite();
+            brightness.setProgress(Math.max(0, level));
+            String status = level < 0 ? label("Unavailable", "Non disponibile")
+                    : !tvBrightness.canWrite() ? label("Authorization needed", "Richiede autorizzazione") : level + "%";
+            brightnessValue.setText(Strings.t("Brightness") + " · " + status);
+            brightness.setContentDescription(brightnessValue.getText());
+            brightness.setAlpha(available ? 1f : 0.55f);
+            syncing = false;
+            return;
+        }
         int raw = Settings.System.getInt(activity.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, -1);
         boolean writable = Build.VERSION.SDK_INT < 23 || Settings.System.canWrite(activity);
         boolean automatic = Settings.System.getInt(activity.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS_MODE, 0) == 1;
@@ -398,6 +415,16 @@ final class QuickHeader extends LinearLayout {
     }
 
     private void changeBrightness(int percent) {
+        if (tvBrightness != null) {
+            try { tvBrightness.set(percent); }
+            catch (SecurityException e) {
+                notice(label("Authorize TV brightness control first", "Serve autorizzare il controllo luminosità TV"));
+            } catch (RuntimeException e) {
+                notice(label("TV brightness could not be applied", "Impossibile applicare la luminosità TV"));
+            }
+            refreshControls();
+            return;
+        }
         int current = Settings.System.getInt(activity.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, -1);
         boolean automatic = Settings.System.getInt(activity.getContentResolver(), Settings.System.SCREEN_BRIGHTNESS_MODE, 0) == 1;
         if (current < 0 || automatic) {

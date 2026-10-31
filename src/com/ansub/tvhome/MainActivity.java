@@ -157,6 +157,8 @@ public class MainActivity extends Activity {
     private static Typeface regular, semibold;
 
     private FrameLayout root; // the page, inside a vertical scroller
+    private QuickHeader header;
+    private View beforeHeader;
     private int tileW, tileH, gridTop; // app grid geometry, set by buildTiles
     private final List<View> tiles = new ArrayList<>();
     private final Map<View, ValueAnimator> lifts = new WeakHashMap<>(); // a running focus fade per tile
@@ -236,7 +238,13 @@ public class MainActivity extends Activity {
         moveHint.setVisibility(View.GONE);
         root.addView(moveHint, at(px(MARGIN), px(ROW1_TOP - 64), -2, -2));
 
-        setContentView(scroller);
+        FrameLayout screen = new FrameLayout(this);
+        FrameLayout.LayoutParams content = new FrameLayout.LayoutParams(-1, -1);
+        content.topMargin = px(QuickHeader.HEIGHT);
+        screen.addView(scroller, content);
+        header = new QuickHeader(this, clockPref, () -> open(PLAY_STORE), this::openTvSettings, this::openBrightness);
+        screen.addView(header, new FrameLayout.LayoutParams(-1, px(QuickHeader.HEIGHT), Gravity.TOP));
+        setContentView(screen);
 
         IntentFilter f = new IntentFilter();
         f.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -346,6 +354,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        header.start();
         // Rebuild only when apps were installed, removed or updated.
         if (dirty) {
             dirty = false;
@@ -364,6 +373,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        header.stop();
         super.onPause();
         // Left normally (an app or Settings opened), so it didn't crash.
         getWindow().getDecorView().removeCallbacks(homeOk);
@@ -395,6 +405,29 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() { /* home screen: nothing to go back to */ }
+
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        View focus = getCurrentFocus();
+        if (focus == header && (event.getKeyCode() == KeyEvent.KEYCODE_BACK
+                || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_DOWN)) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                if (beforeHeader != null && beforeHeader.isAttachedToWindow()) beforeHeader.requestFocus();
+                else if (!tiles.isEmpty()) tiles.get(0).requestFocus();
+            }
+            return true;
+        }
+        if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP && movingKey == null && focus != null
+                && focus != header && event.getAction() == KeyEvent.ACTION_DOWN) {
+            int index = rowApps.indexOf(focus.getTag());
+            if ((index >= 0 && index < PER_ROW) || NETWORK.equals(focus.getTag())
+                    || (focus.getTag() instanceof String && ((String) focus.getTag()).startsWith(QUICK))) {
+                beforeHeader = focus;
+                header.requestFocus();
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
 
     // Holding Back opens Google TV's own home screen, where it stays on (see HomeButton). Spotted on a
     // key repeat, or when Back is let go if the remote sends none.

@@ -26,12 +26,7 @@ import android.graphics.drawable.LayerDrawable;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
-import android.net.ConnectivityManager;
-import android.net.Network;
-import android.net.NetworkCapabilities;
-import android.net.NetworkRequest;
 import android.net.Uri;
-import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputFilter;
@@ -55,7 +50,6 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ScrollView;
-import android.widget.TextClock;
 import android.widget.TextView;
 
 import java.io.File;
@@ -78,12 +72,11 @@ public class MainActivity extends Activity {
     //     (--es apps auto  goes back to 2; add --es stamp <unique> so it's applied only once, see saveConfig)
     //  2. apps.txt (built in as Apps.LIST), topped up with other TV apps installed on this TV.
     // Missing apps are skipped. Topping up stops at six apps, but a chosen list can be any length:
-    // apps wrap into rows of six, like Apple TV, and the page scrolls down once they don't all fit.
+    // apps wrap into rows of four beside the input sidebar; longer pages scroll.
     // On the TV, hold OK on an app (or press Menu) to move or remove it, or add another; that saves list 1.
-    // A network tile always sits at the top right, level with the clock. Settings shortcuts can join
-    // it there, off until picked the same way:
+    // Optional settings shortcuts can sit above the apps, off until picked the same way:
     //   --es quick "bluetooth,sound,picture"
-    // (--es quick none  takes them away again; "wifi" and "ethernet" are the network tile now).
+    // (--es quick none takes them away again; network status now belongs to QuickHeader).
     private static final String PREFS = "config";
     private static final List<String> NOT_APPS = Arrays.asList("com.android.vending", "com.android.tv.settings",
             "com.android.tv", "com.google.android.tvlauncher", "com.google.android.apps.tv.launcherx",
@@ -93,15 +86,13 @@ public class MainActivity extends Activity {
     private static final String ADD = "add";
     private static final String[] EDIT_ITEMS = {"Move", "Replace", "Remove from home", "Uninstall"};
     private static final String[] EDIT_ITEMS_SYSTEM = {"Move", "Replace", "Remove from home", "App info"};
-    private static final int PER_ROW = 6, MAX_INPUTS = 4;
+    private static final int PER_ROW = 4, AUTO_APPS = 6;
 
     // Settings shortcuts: name, label, icon. Tile keys are QUICK + name.
     private static final String QUICK = "quick:";
     private static final String[] QUICK_NAMES = {"bluetooth", "sound", "picture"};
     private static final String[] QUICK_LABELS = {"Bluetooth", "Sound", "Picture"};
     private static final int[][] QUICK_ICONS = {LineIcon.BLUETOOTH, LineIcon.SOUND, LineIcon.PICTURE};
-    private static final String NETWORK = "network";
-    private static final int OFFLINE = 0, ETHERNET = 4; // network states; 1 to 3 are Wi-Fi bars
 
     // Saved on the TV: custom input names ("id=name" per line), hidden inputs (one id per line),
     // and the clock override ("12" or "24"; absent follows the TV).
@@ -116,14 +107,15 @@ public class MainActivity extends Activity {
     private static final String TCL_SHOW_WINDOW = "com.tcl.settings.SHOW_WINDOW";
 
     // Layout is designed at 1920x1080 and scaled to the TV's real UI size by px().
-    private static final int MARGIN = 96, GAP = 36, RADIUS = 26;
+    private static final int MARGIN = 72, GAP = 28, RADIUS = 26;
+    private static final int SIDEBAR_WIDTH = 420, INPUT_HEIGHT = 108, INPUT_STEP = 132;
     // The focus lift: the tile grows, rises, brightens and rounds off a little, then settles.
     // Long enough to read as motion, short enough that a run of d-pad presses never feels behind.
     private static final int FOCUS_MS = 180, RADIUS_UP = 10;
     private static final Interpolator FOCUS_EASE = new DecelerateInterpolator(1.8f);
-    private static final int ROW1_TOP = 604, ROW_STEP = 224;
-    private static final int GRID_MIN_TOP = 400; // more rows push the grid up, but not into the clock
-    private static final int ICON_TOP = 76, ICON_BUTTON = 72, ICON_SIZE = 40, ICON_GAP = 12; // level with the date
+    private static final int ROW1_TOP = 300, ROW_STEP = 260;
+    private static final int GRID_MIN_TOP = 64;
+    private static final int ICON_TOP = 76, ICON_BUTTON = 72, ICON_SIZE = 40, ICON_GAP = 12;
 
     // The Settings tile opens a small menu: the home screen's own settings, then the TV's.
     private static final String[] SETTINGS_ITEMS = {"Wallpaper", "Brightness", "TV settings"};
@@ -157,6 +149,10 @@ public class MainActivity extends Activity {
     private static Typeface regular, semibold;
 
     private FrameLayout root; // the page, inside a vertical scroller
+    private FrameLayout inputRoot;
+    private TextView inputTitle;
+    private final List<String> inputKeys = new ArrayList<>();
+    private String lastMainKey;
     private QuickHeader header;
     private View beforeHeader;
     private int tileW, tileH, gridTop; // app grid geometry, set by buildTiles
@@ -183,17 +179,12 @@ public class MainActivity extends Activity {
         }
     };
 
-    // The network tile follows the connection live: Wi-Fi bars, Ethernet or Offline. Only its icon and
-    // label change, so nothing is rebuilt.
-    private ImageView netIcon;
-    private int netState = -1;
-    private final ConnectivityManager.NetworkCallback networkChanged = new ConnectivityManager.NetworkCallback() {
-        @Override public void onAvailable(Network n) { runOnUiThread(MainActivity.this::refreshNetwork); }
-        @Override public void onLost(Network n) { runOnUiThread(MainActivity.this::refreshNetwork); }
-        // Also fires when the Wi-Fi signal gets stronger or weaker.
-        @Override public void onCapabilitiesChanged(Network n, NetworkCapabilities c) {
-            runOnUiThread(MainActivity.this::refreshNetwork);
-        }
+    private final TvInputManager.TvInputCallback inputsChanged = new TvInputManager.TvInputCallback() {
+        private void refresh() { dirty = true; refreshApps(); }
+        @Override public void onInputAdded(String id) { refresh(); }
+        @Override public void onInputRemoved(String id) { refresh(); }
+        @Override public void onInputUpdated(String id) { refresh(); }
+        @Override public void onTvInputInfoUpdated(TvInputInfo info) { refresh(); }
     };
 
     @Override
@@ -213,25 +204,8 @@ public class MainActivity extends Activity {
         root.setClipChildren(false);
         scroller.addView(root, new FrameLayout.LayoutParams(-1, -2));
 
-        LinearLayout clock = new LinearLayout(this);
-        clock.setOrientation(LinearLayout.VERTICAL);
         shownLocale = java.util.Locale.getDefault();
-        String day = Strings.datePattern();
-        TextClock date = clock(day, day, px(30), 0xA8FFFFFF, regular);
-        // The clock follows the TV unless --es clock 12 or 24 says otherwise.
         String clockPref = prefs().getString(PREF_CLOCK, null);
-        TextClock time = clock("24".equals(clockPref) ? "H:mm" : "h:mm", "12".equals(clockPref) ? "h:mm" : "H:mm",
-                px(176), Color.WHITE, semibold);
-        time.setLetterSpacing(-0.028f);
-        time.setFontFeatureSettings("tnum");
-        time.setIncludeFontPadding(false);
-        // Wrap, not the default match_parent: the column must be as wide as the date, not just the time,
-        // or "0:00" to "9:59" (one digit less) cuts a long date off.
-        clock.addView(date, new LinearLayout.LayoutParams(-2, -2));
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2);
-        tp.topMargin = px(-20); // pull the big digits up under the date
-        clock.addView(time, tp);
-        root.addView(clock, at(px(MARGIN), px(92), -2, -2));
 
         moveHint = text(px(24), 0xA8FFFFFF, regular);
         moveHint.setText(Strings.t("Use the arrows to move it, then press OK"));
@@ -241,7 +215,9 @@ public class MainActivity extends Activity {
         FrameLayout screen = new FrameLayout(this);
         FrameLayout.LayoutParams content = new FrameLayout.LayoutParams(-1, -1);
         content.topMargin = px(QuickHeader.HEIGHT);
+        content.rightMargin = px(SIDEBAR_WIDTH);
         screen.addView(scroller, content);
+        screen.addView(createInputSidebar(), new FrameLayout.LayoutParams(px(SIDEBAR_WIDTH), -1, Gravity.END));
         header = new QuickHeader(this, clockPref, () -> open(PLAY_STORE), this::openTvSettings, this::openBrightness);
         screen.addView(header, new FrameLayout.LayoutParams(-1, px(QuickHeader.HEIGHT), Gravity.TOP));
         setContentView(screen);
@@ -254,18 +230,15 @@ public class MainActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(packagesChanged, f, Context.RECEIVER_EXPORTED);
         else registerReceiver(packagesChanged, f);
 
-        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (cm != null) try {
-            if (android.os.Build.VERSION.SDK_INT >= 24) cm.registerDefaultNetworkCallback(networkChanged);
-            else cm.registerNetworkCallback(new NetworkRequest.Builder().build(), networkChanged);
-        } catch (Exception ignored) {}
+        TvInputManager tim = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
+        if (tim != null) tim.registerCallback(inputsChanged, new android.os.Handler(getMainLooper()));
     }
 
     @Override
     protected void onDestroy() {
         unregisterReceiver(packagesChanged);
-        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (cm != null) try { cm.unregisterNetworkCallback(networkChanged); } catch (Exception ignored) {}
+        TvInputManager tim = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
+        if (tim != null) tim.unregisterCallback(inputsChanged);
         super.onDestroy();
     }
 
@@ -339,7 +312,7 @@ public class MainActivity extends Activity {
             // Top up with other TV apps people installed (or updated), skipping launchers and system tools.
             Intent q = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
             for (ResolveInfo ri : pm.queryIntentActivities(q, 0)) {
-                if (out.size() >= PER_ROW) break;
+                if (out.size() >= AUTO_APPS) break;
                 String p = ri.activityInfo.packageName;
                 int flags = ri.activityInfo.applicationInfo.flags;
                 boolean stockSystem = (flags & ApplicationInfo.FLAG_SYSTEM) != 0
@@ -360,7 +333,6 @@ public class MainActivity extends Activity {
             dirty = false;
             buildTiles();
         }
-        refreshNetwork();
         View f = getCurrentFocus();
         if (f == null && !tiles.isEmpty()) tiles.get(0).requestFocus();
         HomeButton.onHomeResumed(this); // back on this home screen: Home comes here again
@@ -408,6 +380,14 @@ public class MainActivity extends Activity {
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         View focus = getCurrentFocus();
+        if (focus != null && inputKeys.contains(focus.getTag()) && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                View main = tile(lastMainKey);
+                if (main == null && !tiles.isEmpty()) main = tiles.get(0);
+                if (main != null) main.requestFocus();
+            }
+            return true;
+        }
         if (focus == header && (event.getKeyCode() == KeyEvent.KEYCODE_BACK
                 || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_DOWN)) {
             if (event.getAction() == KeyEvent.ACTION_DOWN) {
@@ -419,7 +399,7 @@ public class MainActivity extends Activity {
         if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP && movingKey == null && focus != null
                 && focus != header && event.getAction() == KeyEvent.ACTION_DOWN) {
             int index = rowApps.indexOf(focus.getTag());
-            if ((index >= 0 && index < PER_ROW) || NETWORK.equals(focus.getTag())
+            if ((index >= 0 && index < PER_ROW) || (!inputKeys.isEmpty() && inputKeys.get(0).equals(focus.getTag()))
                     || (focus.getTag() instanceof String && ((String) focus.getTag()).startsWith(QUICK))) {
                 beforeHeader = focus;
                 header.requestFocus();
@@ -528,35 +508,65 @@ public class MainActivity extends Activity {
         return g;
     }
 
+    private FrameLayout createInputSidebar() {
+        FrameLayout pane = new FrameLayout(this);
+        pane.setPadding(0, px(QuickHeader.HEIGHT), 0, 0);
+        pane.setBackgroundColor(0x99151C26);
+        View divider = new View(this);
+        divider.setBackgroundColor(0x20FFFFFF);
+        pane.addView(divider, new FrameLayout.LayoutParams(Math.max(1, px(1)), -1, Gravity.START));
+        inputTitle = text(px(28), Color.WHITE, semibold);
+        pane.addView(inputTitle, at(px(44), px(24), px(332), px(44)));
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setVerticalScrollBarEnabled(true);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        inputRoot = new FrameLayout(this);
+        inputRoot.setClipChildren(false);
+        scroll.addView(inputRoot, new FrameLayout.LayoutParams(-1, -2));
+        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(-1, -1);
+        sp.topMargin = px(88);
+        sp.bottomMargin = px(16);
+        pane.addView(scroll, sp);
+        return pane;
+    }
+
+    private int mainWidth() {
+        return getResources().getDisplayMetrics().widthPixels - px(SIDEBAR_WIDTH);
+    }
+
     private void buildTiles() {
         // While tiles are swapped out, removing the focused one would hand focus down the row (and
         // overwrite focusedKey), so hold focus off until the new tiles are in.
         String want = focusedKey;
         int wantAt = rowApps.indexOf(want); // where it was, in case the app is gone now
         root.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        inputRoot.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         for (View t : tiles) {
             View wrap = (View) t.getParent();
             ((ViewGroup) wrap.getParent()).removeView(wrap);
         }
         tiles.clear();
+        inputRoot.removeAllViews();
+        inputKeys.clear();
         rowApps.clear();
         movingKey = null;
         moveHint.setVisibility(View.GONE);
 
         PackageManager pm = getPackageManager();
         int m = px(MARGIN), g = px(GAP);
-        int w = (getResources().getDisplayMetrics().widthPixels - 2 * m - g * (PER_ROW - 1)) / PER_ROW;
+        int w = (mainWidth() - 2 * m - g * (PER_ROW - 1)) / PER_ROW;
         int h = w * 9 / 16;
         tileW = w;
         tileH = h;
 
         List<String> apps = appList(pm);
-        // Apps fill rows of six. With more rows the grid starts higher, so up to two rows of apps and
-        // the bottom row still fit on screen; past that the page scrolls.
+        // Center short app grids in the space beside the independent input rail. Longer grids scroll.
         int launchable = 0;
         for (String pkg : apps) if (launchIntent(pm, pkg) != null) launchable++;
         int rows = Math.max(1, (launchable + PER_ROW - 1) / PER_ROW);
-        gridTop = Math.max(px(GRID_MIN_TOP), px(ROW1_TOP) - (rows - 1) * px(ROW_STEP));
+        int viewport = getResources().getDisplayMetrics().heightPixels - px(QuickHeader.HEIGHT);
+        gridTop = Math.max(px(GRID_MIN_TOP), (viewport - rows * px(ROW_STEP) - h) / 2);
         int bottomTop = gridTop + rows * px(ROW_STEP);
         ((FrameLayout.LayoutParams) moveHint.getLayoutParams()).topMargin = gridTop - px(64);
         root.setMinimumHeight(bottomTop + h + px(MARGIN));
@@ -579,41 +589,71 @@ public class MainActivity extends Activity {
             addTile(root, pkg, label, banner, null, icon, gridX(i), gridY(i), w, h);
         }
 
-        // Bottom row: Play Store, HDMI inputs, Settings and Add app, six at most.
+        // Utility row only; every input lives in the separate sidebar.
         int col = 0;
         boolean store = !apps.contains(PLAY_STORE) && launchIntent(pm, PLAY_STORE) != null;
-        List<TvInputInfo> inputs = hdmiInputs();
-        int room = PER_ROW - 2 - (store ? 1 : 0);
-        if (inputs.size() > room) inputs = inputs.subList(0, room);
         if (store)
             addTile(root, PLAY_STORE, "Play Store", null, LineIcon.PLAY, null, m + col++ * (w + g), bottomTop, w, h);
-        for (TvInputInfo in : inputs)
-            addTile(root, in.getId(), inputLabel(in), null, LineIcon.HDMI, null, m + col++ * (w + g), bottomTop, w, h);
         addTile(root, SETTINGS, Strings.t("Settings"), null, LineIcon.SETTINGS, null, m + col++ * (w + g), bottomTop, w, h);
         addTile(root, ADD, Strings.t("Add app"), null, LineIcon.PLUS, null, m + col * (w + g), bottomTop, w, h);
 
-        // Plain icons at the top right, level with the date: any settings shortcuts picked, then the
-        // network icon. Added last, so the first app keeps first focus; Up from the apps reaches them.
+        // Preserve optional user-picked shortcuts. Network status is shown only in QuickHeader.
         List<Integer> quick = quickList();
         int ib = px(ICON_BUTTON), ig = px(ICON_GAP);
         // The last icon's right edge lines up with the apps' (its focus circle sticks out past them).
-        int qx = getResources().getDisplayMetrics().widthPixels - m + (ib - px(ICON_SIZE)) / 2
-                - (quick.size() + 1) * ib - quick.size() * ig;
+        int qx = mainWidth() - m + (ib - px(ICON_SIZE)) / 2
+                - quick.size() * ib - Math.max(0, quick.size() - 1) * ig;
         for (int q : quick) {
             addIcon(QUICK + QUICK_NAMES[q], Strings.t(QUICK_LABELS[q]), new LineIcon(QUICK_ICONS[q]), qx);
             qx += ib + ig;
         }
-        netIcon = addIcon(NETWORK, Strings.t("Network"), null, qx);
-        netState = -1;
-        refreshNetwork();
+        List<TvInputInfo> inputs = visibleInputs();
+        inputTitle.setText(("it".equals(java.util.Locale.getDefault().getLanguage()) ? "Ingressi" : "Inputs")
+                + " · " + inputs.size());
+        int inputY = px(16);
+        for (TvInputInfo in : inputs) {
+            inputKeys.add(in.getId());
+            int[] icon = in.getType() == TvInputInfo.TYPE_HDMI ? LineIcon.HDMI : LineIcon.PICTURE;
+            addTile(inputRoot, in.getId(), inputLabel(in), null, icon, null,
+                    px(44), inputY, px(332), px(INPUT_HEIGHT));
+            inputY += px(INPUT_STEP);
+        }
+        inputRoot.setMinimumHeight(inputY + px(16));
+        if (inputs.isEmpty()) {
+            TextView empty = text(px(24), 0xA8FFFFFF, regular);
+            empty.setText("it".equals(java.util.Locale.getDefault().getLanguage()) ? "Nessun ingresso rilevato" : "No inputs detected");
+            inputRoot.addView(empty, at(px(44), px(16), px(332), px(80)));
+        }
+        wireSidebarFocus();
 
         root.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        inputRoot.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         // An app that was uninstalled hands focus to the one now in its place, as Remove does.
         if (wantAt >= 0 && !rowApps.contains(want))
             want = rowApps.isEmpty() ? ADD : rowApps.get(Math.min(wantAt, rowApps.size() - 1));
         View restore = null;
         for (View t : tiles) if (t.getTag().equals(want)) restore = t;
         if (restore != null) restore.requestFocus();
+    }
+
+    private void wireSidebarFocus() {
+        if (inputKeys.isEmpty()) return;
+        View first = tile(inputKeys.get(0));
+        Map<Integer, View> edges = new HashMap<>();
+        for (View card : tiles) {
+            if (inputKeys.contains(card.getTag())) continue;
+            FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) ((View) card.getParent()).getLayoutParams();
+            View old = edges.get(p.topMargin);
+            if (old == null || p.leftMargin > ((FrameLayout.LayoutParams) ((View) old.getParent()).getLayoutParams()).leftMargin)
+                edges.put(p.topMargin, card);
+        }
+        for (View edge : edges.values()) edge.setNextFocusRightId(first.getId());
+        for (int i = 0; i < inputKeys.size(); i++) {
+            View card = tile(inputKeys.get(i));
+            card.setNextFocusUpId(i == 0 ? header.getId() : tile(inputKeys.get(i - 1)).getId());
+            card.setNextFocusDownId(i + 1 == inputKeys.size() ? card.getId() : tile(inputKeys.get(i + 1)).getId());
+            card.setNextFocusRightId(card.getId());
+        }
     }
 
     private void addTile(ViewGroup parent, final String key, String label, Drawable banner, int[] lineIcon, Drawable appIcon,
@@ -652,6 +692,7 @@ public class MainActivity extends Activity {
         card.setBackground(bg);
         card.setClipToOutline(true);
         card.setFocusable(true);
+        card.setId(View.generateViewId());
         card.setTag(key);
 
         // Banner tiles show their name underneath when focused.
@@ -664,7 +705,10 @@ public class MainActivity extends Activity {
 
         final boolean glass = banner == null;
         card.setOnFocusChangeListener((v, has) -> {
-            if (has) focusedKey = key;
+            if (has) {
+                focusedKey = key;
+                if (!isInput(key)) lastMainKey = key;
+            }
             lift(v, bg, has, glass ? 0x13FFFFFF : 0xFF1E1A1C, glass ? 0x38FFFFFF : 0xFF1E1A1C,
                     px(RADIUS), px(RADIUS + RADIUS_UP));
             if (caption != null) {
@@ -822,9 +866,6 @@ public class MainActivity extends Activity {
         } else if (isInput(key)) {
             openInput(key);
             return;
-        } else if (NETWORK.equals(key)) {
-            openNetworkSettings();
-            return;
         } else if (key.startsWith(QUICK)) {
             openQuick(key.substring(QUICK.length()));
             return;
@@ -848,7 +889,10 @@ public class MainActivity extends Activity {
     // Google TV's input player, that goes first, because some Google TVs ship com.android.tv as a stub
     // that starts fine but only says "Hello World!" (issue #5).
     private void openInput(String id) {
-        Intent view = new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(id));
+        TvInputInfo input = inputById(id);
+        boolean tuner = input != null && input.getType() == TvInputInfo.TYPE_TUNER;
+        Intent view = new Intent(Intent.ACTION_VIEW, tuner ? TvContract.buildChannelsUriForInput(id)
+                : TvContract.buildChannelUriForPassthroughInput(id));
         List<Intent> tries = new ArrayList<>();
         ResolveInfo def = getPackageManager().resolveActivity(view, PackageManager.MATCH_DEFAULT_ONLY);
         if (def != null && def.activityInfo != null && INPUT_PLAYER.equals(def.activityInfo.packageName))
@@ -879,62 +923,6 @@ public class MainActivity extends Activity {
             out.add(q);
         }
         return out;
-    }
-
-    // OFFLINE, 1 to 3 for Wi-Fi with that many bars, or ETHERNET (any other link, which on a TV is a cable).
-    private int networkState() {
-        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (cm == null) return OFFLINE;
-        try {
-            int rssi = Integer.MIN_VALUE;
-            if (android.os.Build.VERSION.SDK_INT >= 23) {
-                NetworkCapabilities c = cm.getNetworkCapabilities(cm.getActiveNetwork());
-                if (c == null) return OFFLINE;
-                if (!c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return ETHERNET;
-                if (android.os.Build.VERSION.SDK_INT >= 29) rssi = c.getSignalStrength();
-            } else {
-                android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
-                if (ni == null || !ni.isConnected()) return OFFLINE;
-                if (ni.getType() != ConnectivityManager.TYPE_WIFI) return ETHERNET;
-            }
-            if (rssi == Integer.MIN_VALUE) { // Android 9 and older: ask the Wi-Fi service
-                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-                if (wm != null && wm.getConnectionInfo() != null) rssi = wm.getConnectionInfo().getRssi();
-            }
-            return 1 + WifiManager.calculateSignalLevel(rssi, 3);
-        } catch (Exception e) {
-            return OFFLINE;
-        }
-    }
-
-    private void refreshNetwork() {
-        if (netIcon == null) return;
-        int state = networkState();
-        if (state == netState) return;
-        netState = state;
-        if (state == ETHERNET) {
-            netIcon.setImageDrawable(new LineIcon(LineIcon.ETHERNET));
-        } else {
-            // The whole Wi-Fi fan dim, with the bars it has bright on top. Offline is a slash instead.
-            LineIcon fan = new LineIcon(LineIcon.WIFI);
-            fan.setAlpha(0x47);
-            int[] top = state == OFFLINE ? LineIcon.SLASH : state == 1 ? LineIcon.WIFI_1
-                    : state == 2 ? LineIcon.WIFI_2 : LineIcon.WIFI;
-            netIcon.setImageDrawable(new LayerDrawable(new Drawable[] {fan, new LineIcon(top)}));
-        }
-        ((View) netIcon.getParent()).setContentDescription(
-                state == OFFLINE ? Strings.t("Offline") : state == ETHERNET ? "Ethernet" : "Wi-Fi");
-    }
-
-    // Wi-Fi settings (on Android TV that page lists Ethernet too), else the TV's network page, else Settings.
-    private void openNetworkSettings() {
-        for (String a : new String[] {Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_WIRELESS_SETTINGS,
-                Settings.ACTION_SETTINGS}) {
-            try {
-                startActivity(new Intent(a).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                return;
-            } catch (Exception ignored) {}
-        }
     }
 
     // Screens a shortcut can open, best first, keeping only those this TV has.
@@ -1122,7 +1110,8 @@ public class MainActivity extends Activity {
         int[] at = new int[2];
         anchor.getLocationOnScreen(at);
         int tileBottom = at[1] + Math.round(anchor.getHeight() * anchor.getScaleY());
-        int w = Math.max(Math.max(Math.round(anchor.getWidth() * anchor.getScaleX()), px(320)), (int) Math.ceil(widest));
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int w = Math.min(screenWidth - px(32), Math.max(Math.max(Math.round(anchor.getWidth() * anchor.getScaleX()), px(320)), (int) Math.ceil(widest)));
         int h = items.length * rowH + 2 * pad;
         int y = tileBottom + px(64);
         if (y + h > getResources().getDisplayMetrics().heightPixels - px(24)) y = at[1] - h - px(16);
@@ -1131,7 +1120,7 @@ public class MainActivity extends Activity {
         win.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
         win.setGravity(Gravity.TOP | Gravity.START);
         android.view.WindowManager.LayoutParams lp = win.getAttributes();
-        lp.x = at[0];
+        lp.x = Math.max(px(16), Math.min(at[0], screenWidth - w - px(16)));
         lp.y = y;
         lp.width = w;
         lp.height = h;
@@ -1437,29 +1426,37 @@ public class MainActivity extends Activity {
         return key.indexOf('/') > 0;
     }
 
-    // The TV's own HDMI inputs (not devices behind them), in order, skipping the ones taken off
-    // the home screen from the tile menu.
-    private List<TvInputInfo> hdmiInputs() {
+    // All registered input types, including CEC children, with no row-size or input-count limit.
+    private List<TvInputInfo> visibleInputs() {
         List<TvInputInfo> out = new ArrayList<>();
         Set<String> hidden = hiddenInputs();
         for (TvInputInfo in : allInputs()) if (!hidden.contains(in.getId())) out.add(in);
-        return out.size() > MAX_INPUTS ? out.subList(0, MAX_INPUTS) : out;
+        return out;
     }
 
-    // HDMI inputs are what a home screen shows. install.sh's FAKE_INPUT=1 takes every TV input
-    // instead, so the tiles and their menus can be tested on an emulator that has no HDMI of its own.
+    // Respect inputs explicitly hidden in Android settings; do not filter other types or CEC devices.
     private boolean countsAsInput(TvInputInfo in) {
-        boolean fake = "1".equals(prefs().getString(PREF_FAKE_INPUTS, null));
-        return (fake || in.getType() == TvInputInfo.TYPE_HDMI) && in.getParentId() == null && !in.isHidden(this);
+        return android.os.Build.VERSION.SDK_INT < 24 || !in.isHidden(this);
     }
 
-    // Every HDMI input the TV reports that isn't switched off in its own settings, hidden or not.
+    // Keep devices directly after their parent HDMI port, then AV/component and tuners.
     private List<TvInputInfo> allInputs() {
         List<TvInputInfo> out = new ArrayList<>();
         TvInputManager tim = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
         if (tim == null) return out;
         for (TvInputInfo in : tim.getTvInputList()) if (countsAsInput(in)) out.add(in);
-        Collections.sort(out, (a, b) -> a.getId().compareTo(b.getId()));
+        Collections.sort(out, (a, b) -> {
+            int ar = a.getType() == TvInputInfo.TYPE_HDMI ? 0 : a.getType() == TvInputInfo.TYPE_TUNER ? 2 : 1;
+            int br = b.getType() == TvInputInfo.TYPE_HDMI ? 0 : b.getType() == TvInputInfo.TYPE_TUNER ? 2 : 1;
+            if (ar != br) return ar - br;
+            String ap = a.getParentId() == null ? a.getId() : a.getParentId();
+            String bp = b.getParentId() == null ? b.getId() : b.getParentId();
+            int parent = ap.compareTo(bp);
+            if (parent != 0) return parent;
+            if (a.getParentId() == null && b.getParentId() != null) return -1;
+            if (a.getParentId() != null && b.getParentId() == null) return 1;
+            return a.getId().compareTo(b.getId());
+        });
         return out;
     }
 
@@ -1561,16 +1558,6 @@ public class MainActivity extends Activity {
 
     private int px(int v) {
         return Math.round(v * scale);
-    }
-
-    private TextClock clock(String f12, String f24, int px, int color, Typeface tf) {
-        TextClock c = new TextClock(this);
-        c.setFormat12Hour(f12);
-        c.setFormat24Hour(f24);
-        c.setTextSize(TypedValue.COMPLEX_UNIT_PX, px);
-        c.setTextColor(color);
-        c.setTypeface(tf);
-        return c;
     }
 
     private TextView text(int px, int color, Typeface tf) {

@@ -27,7 +27,7 @@ foreach ($dir in @('classes','dex','gen\com\ansub\tvhome')) {
 [xml]$manifest = Get-Content -LiteralPath 'AndroidManifest.xml' -Raw
 $ns = 'http://schemas.android.com/apk/res/android'
 $manifest.manifest.SetAttribute('package', $Package)
-$manifest.manifest.SetAttribute('versionName', $ns, '1.5.7-header-preview.4')
+$manifest.manifest.SetAttribute('versionName', $ns, '1.5.7-header-preview.5')
 $manifest.manifest.application.SetAttribute('label', $ns, 'TV Detox Anteprima')
 $manifest.manifest.application.SetAttribute('debuggable', $ns, 'true')
 foreach ($node in $manifest.SelectNodes('//activity|//service')) {

@@ -109,7 +109,7 @@ public class MainActivity extends Activity {
 
     // Layout is designed at 1920x1080 and scaled to the TV's real UI size by px().
     private static final int MARGIN = 72, GAP = 28, RADIUS = 26;
-    private static final int SIDEBAR_WIDTH = 420, INPUT_TAB_WIDTH = 160, INPUT_HEIGHT = 108, INPUT_STEP = 132;
+    private static final int SIDEBAR_WIDTH = 420, INPUT_TAB_WIDTH = 48, INPUT_TAB_HEIGHT = 160, INPUT_HEIGHT = 108, INPUT_STEP = 132;
     // The focus lift: the tile grows, rises, brightens and rounds off a little, then settles.
     // Long enough to read as motion, short enough that a run of d-pad presses never feels behind.
     private static final int FOCUS_MS = 180, RADIUS_UP = 10;
@@ -153,7 +153,7 @@ public class MainActivity extends Activity {
     private ScrollView mainScroller;
     private FrameLayout inputRoot;
     private FrameLayout inputPane;
-    private TextView inputTab;
+    private FrameLayout inputTab;
     private boolean inputsOpen;
     private TextView inputTitle;
     private final List<String> inputKeys = new ArrayList<>();
@@ -231,7 +231,7 @@ public class MainActivity extends Activity {
         header = new QuickHeader(this, clockPref, () -> open(PLAY_STORE), this::openTvSettings, this::openBrightness);
         screen.addView(header, new FrameLayout.LayoutParams(-1, px(QuickHeader.HEIGHT), Gravity.TOP));
         inputTab = createInputTab();
-        FrameLayout.LayoutParams tab = new FrameLayout.LayoutParams(px(INPUT_TAB_WIDTH), px(72), Gravity.END | Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams tab = new FrameLayout.LayoutParams(px(INPUT_TAB_WIDTH), px(INPUT_TAB_HEIGHT), Gravity.END | Gravity.CENTER_VERTICAL);
         tab.topMargin = px(QuickHeader.HEIGHT);
         screen.addView(inputTab, tab);
         setContentView(screen);
@@ -547,10 +547,17 @@ public class MainActivity extends Activity {
         return pane;
     }
 
-    private TextView createInputTab() {
-        TextView tab = text(px(25), Color.WHITE, semibold);
-        tab.setText("it".equals(java.util.Locale.getDefault().getLanguage()) ? "Ingressi" : "Inputs");
-        tab.setGravity(Gravity.CENTER);
+    private FrameLayout createInputTab() {
+        FrameLayout tab = new FrameLayout(this);
+        tab.setClipChildren(false);
+        TextView label = text(px(25), Color.WHITE, semibold);
+        label.setText("it".equals(java.util.Locale.getDefault().getLanguage()) ? "Ingressi" : "Inputs");
+        label.setSingleLine(true);
+        label.setGravity(Gravity.CENTER);
+        label.setRotation(-90f);
+        label.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        tab.addView(label, new FrameLayout.LayoutParams(px(INPUT_TAB_HEIGHT), px(INPUT_TAB_WIDTH), Gravity.CENTER));
+        tab.setContentDescription(label.getText());
         tab.setFocusable(true);
         tab.setClickable(true);
         tab.setId(View.generateViewId());

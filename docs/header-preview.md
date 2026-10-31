@@ -44,6 +44,12 @@ An identical short navigation sample on the SHARP measured preview-5 median/p95 
 
 Preview 7 was built, signed, updated in place and launched on the SHARP on 31 October 2026. Device checks verified the hidden initial state, focus-only remaining closed, OK opening the first input, traversal to the ninth input, Left/Back closing to the tab, return to apps and the header's existing OK panel. Screenshots confirmed the drawer clipping and wider app grid. Brightness grants were retained; no input was activated or audio/backlight level intentionally changed. The crash buffer had no entries. A separate Home-only navigation sample measured median/p95 11/19 ms and an idle two-second sample added zero frames; its different layout/path prevents a direct performance comparison with the earlier sidebar samples. Final visual and input-activation acceptance remains with the user.
 
+## Narrow vertical tab (preview 8)
+
+The input tab remains on the explicitly confirmed right side. Its label is rotated **90 degrees counterclockwise**, inside a 48-by-160 design-pixel focus target at 1080p. The tab previously occupied 160 pixels horizontally; it now reserves only 48, returning another 112 pixels to the main area. Only the text is rotated, so the glass background and focus bounds remain a narrow vertical tab. Its accessible label remains Inputs / Ingressi. OK/open, Back/Left/close and the input launch route are unchanged.
+
+Preview 8 was built, signed and installed in place on the SHARP. Screenshots verified the complete counterclockwise label and wider Home. Device checks confirmed the 48-by-160 focus bounds, focus alone leaving the drawer closed, OK opening HDMI 1, Back restoring the tab and Up/Down navigation to/from the header. Brightness grants were retained and the crash buffer was empty. No input was activated or audio/backlight level changed.
+
 ## Separate preview package
 
 The Windows adapter builds `com.thewhitewolf1985.tvhome.preview`, labeled **TV Detox Anteprima**, with a persistent local signing key. The generated manifest keeps the Java class names explicit and omits the HOME intent filter. Installing the preview therefore preserves the official package, its preferences and the default Home selection. The preview has its own app list. The key and build outputs are ignored by Git.

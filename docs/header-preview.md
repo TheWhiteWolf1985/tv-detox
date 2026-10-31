@@ -20,7 +20,7 @@ Later on 31 October 2026, the user personally confirmed that the sidebar worked 
 
 ## Glass chrome (preview 6)
 
-The closed header and input sidebar use the same `GlassSurface` palette: a translucent grey tint, a faint diagonal sheen and a one-pixel edge at 1080p. Each surface uses one native `GradientDrawable`; there is no live blur, wallpaper capture, off-screen bitmap, extra rendering layer or continuous effect animation. The header keeps a brighter focused state for remote navigation. The sidebar starts below the header so their translucent backgrounds never overlap and darken the top-right corner. Input tiles, navigation and quick-setting behavior are unchanged.
+Preview 6 introduced the same `GlassSurface` palette for the closed header and input sidebar: a translucent grey tint, a faint diagonal sheen and a one-pixel edge at 1080p. Initially each surface used one native `GradientDrawable`. The header keeps a brighter focused state for remote navigation. The sidebar starts below the header so their translucent backgrounds never overlap and darken the top-right corner. Input tiles, navigation and quick-setting behavior were unchanged.
 
 Preview 6 was built, signed and installed on the SHARP. Directional checks reached the last input and returned to the main area/header; screenshots confirmed the normal and focused surfaces. Backlight and retained preview permissions were unchanged. An idle two-second sample added no rendered frames. A navigation sample showed slow frames, so it is not evidence of a frame-rate improvement or a comparative performance result. Visual acceptance of this finish remains with the user.
 
@@ -33,6 +33,16 @@ Preview 4 therefore connects the existing slider to **`Settings.Global.picture_b
 On **31 October 2026**, the user personally tested preview 4 on the SHARP AQUOS_TVE19A and confirmed correct operation. This is user-reported physical acceptance of the installed build from commit `21df61b`, following the negative results for the earlier brightness paths. No separate per-app/HDMI test matrix was recorded. The brief diagnostic change of the backlight from 0 to 30 was restored before delivery. Further physical tests and level changes remain user-controlled. Other devices retain the standard Android brightness path from the first preview; they have not received this device's physical acceptance.
 
 `QuickHeader` owns its receiver, network callback and settings observer only while the activity is resumed. It is placed outside the existing page's ScrollView. Preview 5 keeps that header and the accepted SHARP backlight adapter. Upstream PRs #92 (inputs), #93 (fixed clock/scroller) and #99 (focus/layout) remain separate work to reconcile before any upstream contribution.
+
+## Collapsible input drawer (preview 7)
+
+The right input sidebar starts hidden. Only a compact glass tab labeled **Inputs / Ingressi** remains beside the wider four-column app grid. Focusing the tab does not open anything: press **OK** to show the vertical input list and focus its first tile. Up/Down navigate the inputs. **Back** or **Left** closes the drawer and returns to the tab; Left from that tab returns to the last main-area tile. The header keeps its existing focus/OK behavior.
+
+The drawer overlays the right side when open. Main-area tiles are temporarily excluded from focus, so directional navigation cannot land on a covered app. The main scroller is clipped at the drawer edge to keep app banners from showing through its translucent background. Opening/closing only toggles visibility, clipping and focus; it does not rebuild the app grid or run an opening animation. Selecting an input closes the drawer before using the existing input launch route. The glass palette and persistent brightness grants are retained.
+
+An identical short navigation sample on the SHARP measured preview-5 median/p95 frame times of 18/23 ms and preview-6 times of 20/31 ms. This is one sample per build, affected by execution order and TV load. It motivated replacing the per-frame gradient with two shared 64x64 textures (normal/focused, 32 KiB total pixel storage) in preview 7. The textures are generated once and reused by header, tab and drawer. The effect uses no live blur, wallpaper capture or continuous animation.
+
+Preview 7 was built, signed, updated in place and launched on the SHARP on 31 October 2026. Device checks verified the hidden initial state, focus-only remaining closed, OK opening the first input, traversal to the ninth input, Left/Back closing to the tab, return to apps and the header's existing OK panel. Screenshots confirmed the drawer clipping and wider app grid. Brightness grants were retained; no input was activated or audio/backlight level intentionally changed. The crash buffer had no entries. A separate Home-only navigation sample measured median/p95 11/19 ms and an idle two-second sample added zero frames; its different layout/path prevents a direct performance comparison with the earlier sidebar samples. Final visual and input-activation acceptance remains with the user.
 
 ## Separate preview package
 

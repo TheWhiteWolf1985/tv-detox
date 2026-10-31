@@ -72,7 +72,7 @@ public class MainActivity extends Activity {
     //     (--es apps auto  goes back to 2; add --es stamp <unique> so it's applied only once, see saveConfig)
     //  2. apps.txt (built in as Apps.LIST), topped up with other TV apps installed on this TV.
     // Missing apps are skipped. Topping up stops at six apps, but a chosen list can be any length:
-    // apps wrap into rows of four beside the input sidebar; longer pages scroll.
+    // apps wrap into rows of four beside the compact input tab; longer pages scroll.
     // On the TV, hold OK on an app (or press Menu) to move or remove it, or add another; that saves list 1.
     // Optional settings shortcuts can sit above the apps, off until picked the same way:
     //   --es quick "bluetooth,sound,picture"
@@ -84,6 +84,7 @@ public class MainActivity extends Activity {
     private static final String PLAY_STORE = "com.android.vending";
     private static final String SETTINGS = "settings";
     private static final String ADD = "add";
+    private static final String INPUT_TAB = "input-tab";
     private static final String[] EDIT_ITEMS = {"Move", "Replace", "Remove from home", "Uninstall"};
     private static final String[] EDIT_ITEMS_SYSTEM = {"Move", "Replace", "Remove from home", "App info"};
     private static final int PER_ROW = 4, AUTO_APPS = 6;
@@ -108,12 +109,12 @@ public class MainActivity extends Activity {
 
     // Layout is designed at 1920x1080 and scaled to the TV's real UI size by px().
     private static final int MARGIN = 72, GAP = 28, RADIUS = 26;
-    private static final int SIDEBAR_WIDTH = 420, INPUT_HEIGHT = 108, INPUT_STEP = 132;
+    private static final int SIDEBAR_WIDTH = 420, INPUT_TAB_WIDTH = 160, INPUT_HEIGHT = 108, INPUT_STEP = 132;
     // The focus lift: the tile grows, rises, brightens and rounds off a little, then settles.
     // Long enough to read as motion, short enough that a run of d-pad presses never feels behind.
     private static final int FOCUS_MS = 180, RADIUS_UP = 10;
     private static final Interpolator FOCUS_EASE = new DecelerateInterpolator(1.8f);
-    private static final int ROW1_TOP = 300, ROW_STEP = 260;
+    private static final int ROW1_TOP = 300, ROW_STEP = 300;
     private static final int GRID_MIN_TOP = 64;
     private static final int ICON_TOP = 76, ICON_BUTTON = 72, ICON_SIZE = 40, ICON_GAP = 12;
 
@@ -149,7 +150,11 @@ public class MainActivity extends Activity {
     private static Typeface regular, semibold;
 
     private FrameLayout root; // the page, inside a vertical scroller
+    private ScrollView mainScroller;
     private FrameLayout inputRoot;
+    private FrameLayout inputPane;
+    private TextView inputTab;
+    private boolean inputsOpen;
     private TextView inputTitle;
     private final List<String> inputKeys = new ArrayList<>();
     private String lastMainKey;
@@ -196,6 +201,7 @@ public class MainActivity extends Activity {
         showWallpaper(wallpaper());
 
         ScrollView scroller = new ScrollView(this);
+        mainScroller = scroller;
         scroller.setFillViewport(true);
         scroller.setVerticalScrollBarEnabled(false);
         scroller.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -215,13 +221,19 @@ public class MainActivity extends Activity {
         FrameLayout screen = new FrameLayout(this);
         FrameLayout.LayoutParams content = new FrameLayout.LayoutParams(-1, -1);
         content.topMargin = px(QuickHeader.HEIGHT);
-        content.rightMargin = px(SIDEBAR_WIDTH);
+        content.rightMargin = px(INPUT_TAB_WIDTH);
         screen.addView(scroller, content);
         FrameLayout.LayoutParams sidebar = new FrameLayout.LayoutParams(px(SIDEBAR_WIDTH), -1, Gravity.END);
         sidebar.topMargin = px(QuickHeader.HEIGHT);
-        screen.addView(createInputSidebar(), sidebar);
+        inputPane = createInputSidebar();
+        inputPane.setVisibility(View.GONE);
+        screen.addView(inputPane, sidebar);
         header = new QuickHeader(this, clockPref, () -> open(PLAY_STORE), this::openTvSettings, this::openBrightness);
         screen.addView(header, new FrameLayout.LayoutParams(-1, px(QuickHeader.HEIGHT), Gravity.TOP));
+        inputTab = createInputTab();
+        FrameLayout.LayoutParams tab = new FrameLayout.LayoutParams(px(INPUT_TAB_WIDTH), px(72), Gravity.END | Gravity.CENTER_VERTICAL);
+        tab.topMargin = px(QuickHeader.HEIGHT);
+        screen.addView(inputTab, tab);
         setContentView(screen);
 
         IntentFilter f = new IntentFilter();
@@ -382,7 +394,12 @@ public class MainActivity extends Activity {
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         View focus = getCurrentFocus();
-        if (focus != null && inputKeys.contains(focus.getTag()) && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT) {
+        if (inputsOpen && (event.getKeyCode() == KeyEvent.KEYCODE_BACK
+                || (focus != header && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT))) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) closeInputs();
+            return true;
+        }
+        if (focus == inputTab && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT) {
             if (event.getAction() == KeyEvent.ACTION_DOWN) {
                 View main = tile(lastMainKey);
                 if (main == null && !tiles.isEmpty()) main = tiles.get(0);
@@ -401,7 +418,7 @@ public class MainActivity extends Activity {
         if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP && movingKey == null && focus != null
                 && focus != header && event.getAction() == KeyEvent.ACTION_DOWN) {
             int index = rowApps.indexOf(focus.getTag());
-            if ((index >= 0 && index < PER_ROW) || (!inputKeys.isEmpty() && inputKeys.get(0).equals(focus.getTag()))
+            if (focus == inputTab || focus == inputPane || (index >= 0 && index < PER_ROW) || (!inputKeys.isEmpty() && inputKeys.get(0).equals(focus.getTag()))
                     || (focus.getTag() instanceof String && ((String) focus.getTag()).startsWith(QUICK))) {
                 beforeHeader = focus;
                 header.requestFocus();
@@ -512,6 +529,7 @@ public class MainActivity extends Activity {
 
     private FrameLayout createInputSidebar() {
         FrameLayout pane = new FrameLayout(this);
+        pane.setFocusable(true);
         pane.setBackground(GlassSurface.panel(getResources().getDisplayMetrics().widthPixels / 1920f, false));
         inputTitle = text(px(28), Color.WHITE, semibold);
         pane.addView(inputTitle, at(px(44), px(24), px(332), px(44)));
@@ -529,8 +547,56 @@ public class MainActivity extends Activity {
         return pane;
     }
 
+    private TextView createInputTab() {
+        TextView tab = text(px(25), Color.WHITE, semibold);
+        tab.setText("it".equals(java.util.Locale.getDefault().getLanguage()) ? "Ingressi" : "Inputs");
+        tab.setGravity(Gravity.CENTER);
+        tab.setFocusable(true);
+        tab.setClickable(true);
+        tab.setId(View.generateViewId());
+        tab.setTag(INPUT_TAB);
+        GlassSurface rest = GlassSurface.panel(scale, false);
+        GlassSurface focused = GlassSurface.panel(scale, true);
+        float r = px(20);
+        float[] corners = {r,r,0,0,0,0,r,r};
+        rest.setCornerRadii(corners);
+        focused.setCornerRadii(corners);
+        tab.setBackground(rest);
+        tab.setOnFocusChangeListener((v, has) -> {
+            tab.setBackground(has ? focused : rest);
+            if (has) focusedKey = INPUT_TAB;
+        });
+        tab.setOnClickListener(v -> openInputs());
+        tab.setNextFocusRightId(tab.getId());
+        tab.setNextFocusDownId(tab.getId());
+        tab.setNextFocusUpId(header.getId());
+        return tab;
+    }
+
+    private void openInputs() {
+        if (inputsOpen) return;
+        inputsOpen = true;
+        inputPane.setVisibility(View.VISIBLE);
+        // Keep app banners out of the translucent drawer without a blur, scrim or grid rebuild.
+        mainScroller.setClipBounds(new android.graphics.Rect(0, 0,
+                getResources().getDisplayMetrics().widthPixels - px(SIDEBAR_WIDTH), mainScroller.getHeight()));
+        root.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        View first = inputKeys.isEmpty() ? inputPane : tile(inputKeys.get(0));
+        first.requestFocus();
+        inputTab.setVisibility(View.GONE);
+    }
+
+    private void closeInputs() {
+        inputsOpen = false;
+        mainScroller.setClipBounds(null);
+        root.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        inputTab.setVisibility(View.VISIBLE);
+        inputTab.requestFocus();
+        inputPane.setVisibility(View.GONE);
+    }
+
     private int mainWidth() {
-        return getResources().getDisplayMetrics().widthPixels - px(SIDEBAR_WIDTH);
+        return getResources().getDisplayMetrics().widthPixels - px(INPUT_TAB_WIDTH);
     }
 
     private void buildTiles() {
@@ -559,7 +625,7 @@ public class MainActivity extends Activity {
         tileH = h;
 
         List<String> apps = appList(pm);
-        // Center short app grids in the space beside the independent input rail. Longer grids scroll.
+        // The compact tab leaves a wider app area. Opening the input drawer never rebuilds this grid.
         int launchable = 0;
         for (String pkg : apps) if (launchIntent(pm, pkg) != null) launchable++;
         int rows = Math.max(1, (launchable + PER_ROW - 1) / PER_ROW);
@@ -624,19 +690,18 @@ public class MainActivity extends Activity {
         }
         wireSidebarFocus();
 
-        root.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        root.setDescendantFocusability(inputsOpen ? ViewGroup.FOCUS_BLOCK_DESCENDANTS : ViewGroup.FOCUS_AFTER_DESCENDANTS);
         inputRoot.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         // An app that was uninstalled hands focus to the one now in its place, as Remove does.
         if (wantAt >= 0 && !rowApps.contains(want))
             want = rowApps.isEmpty() ? ADD : rowApps.get(Math.min(wantAt, rowApps.size() - 1));
         View restore = null;
         for (View t : tiles) if (t.getTag().equals(want)) restore = t;
+        if (INPUT_TAB.equals(want)) restore = inputTab;
         if (restore != null) restore.requestFocus();
     }
 
     private void wireSidebarFocus() {
-        if (inputKeys.isEmpty()) return;
-        View first = tile(inputKeys.get(0));
         Map<Integer, View> edges = new HashMap<>();
         for (View card : tiles) {
             if (inputKeys.contains(card.getTag())) continue;
@@ -645,7 +710,7 @@ public class MainActivity extends Activity {
             if (old == null || p.leftMargin > ((FrameLayout.LayoutParams) ((View) old.getParent()).getLayoutParams()).leftMargin)
                 edges.put(p.topMargin, card);
         }
-        for (View edge : edges.values()) edge.setNextFocusRightId(first.getId());
+        for (View edge : edges.values()) edge.setNextFocusRightId(inputTab.getId());
         for (int i = 0; i < inputKeys.size(); i++) {
             View card = tile(inputKeys.get(i));
             card.setNextFocusUpId(i == 0 ? header.getId() : tile(inputKeys.get(i - 1)).getId());
@@ -862,6 +927,7 @@ public class MainActivity extends Activity {
             });
             return;
         } else if (isInput(key)) {
+            if (inputsOpen) closeInputs();
             openInput(key);
             return;
         } else if (key.startsWith(QUICK)) {

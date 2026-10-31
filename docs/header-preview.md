@@ -50,6 +50,21 @@ The input tab remains on the explicitly confirmed right side. Its label is rotat
 
 Preview 8 was built, signed and installed in place on the SHARP. Screenshots verified the complete counterclockwise label and wider Home. Device checks confirmed the 48-by-160 focus bounds, focus alone leaving the drawer closed, OK opening HDMI 1, Back restoring the tab and Up/Down navigation to/from the header. Brightness grants were retained and the crash buffer was empty. No input was activated or audio/backlight level changed.
 
+On 31 October 2026 the user personally confirmed the narrow tab and correct opening of the input panel, then requested that this Home be installed as the TV's default.
+
+## Default Home installation (1.5.7-custom.1)
+
+```powershell
+./tools/build-preview.ps1 -AsHome
+./tools/install-preview.ps1 -Serial <authorized-TV-serial> -Apk ./out/home/tvhome-custom-home.apk -MakeDefaultHome
+```
+
+The Home variant is labeled **TV Detox**, is not debuggable and includes the HOME/DEFAULT intent filter. It intentionally keeps `com.thewhitewolf1985.tvhome.preview` and the same signing key: updating in place retains the already tested app's identity, configuration and brightness permissions. The internal package suffix is retained for compatibility. The original upstream manifest and the official installed app remain separate.
+
+Before promotion, the packaged runtime code and resources were compared byte-for-byte with the accepted preview 8. Only the manifest and APK signature metadata differed. On the SHARP the updated app retained UID 10064, `WRITE_SECURE_SETTINGS` and AppOps `WRITE_SETTINGS: allow`. The installer selected the Home with Android's `set-home-activity` command and verified the resulting HOME intent resolution. Launching TV settings and pressing Home returned to this package; a fresh UI dump and screenshot confirmed it. The crash buffer was empty. No input was activated, volume/backlight level changed or reboot performed.
+
+For subsequent updates to the selected Home, build with `-AsHome` and use that APK. The installer refuses an ordinary preview without a HOME filter when this app is already the default launcher; that rejection was verified before installation. `-MakeDefaultHome` changes the default explicitly and is needed only when selecting it. There is no uninstall fallback, system-app conversion, disabled launcher or additional accessibility service. The local signing key must be preserved for future updates.
+
 ## Separate preview package
 
 The Windows adapter builds `com.thewhitewolf1985.tvhome.preview`, labeled **TV Detox Anteprima**, with a persistent local signing key. The generated manifest keeps the Java class names explicit and omits the HOME intent filter. Installing the preview therefore preserves the official package, its preferences and the default Home selection. The preview has its own app list. The key and build outputs are ignored by Git.

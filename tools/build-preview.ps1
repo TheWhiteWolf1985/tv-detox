@@ -1,7 +1,8 @@
 param(
     [string]$Sdk = "$env:LOCALAPPDATA\Android\sdk",
     [string]$BuildTools = '36.0.0',
-    [string]$Package = 'com.thewhitewolf1985.tvhome.preview'
+    [string]$Package = 'com.thewhitewolf1985.tvhome.preview',
+    [switch]$AsHome
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -12,7 +13,9 @@ function Run([string]$Command, [string[]]$Arguments) {
 }
 $bt = Join-Path $Sdk "build-tools\$BuildTools"
 $jar = Join-Path $Sdk 'platforms\android-34\android.jar'
-$out = Join-Path (Get-Location) 'out\preview'
+$variant = if ($AsHome) { 'home' } else { 'preview' }
+$apkName = if ($AsHome) { 'tvhome-custom-home.apk' } else { 'tvhome-header-preview.apk' }
+$out = Join-Path (Get-Location) "out\$variant"
 foreach ($dir in @('classes','dex','gen')) {
     $generated = [IO.Path]::GetFullPath((Join-Path $out $dir))
     if (-not $generated.StartsWith($out + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
@@ -23,20 +26,21 @@ foreach ($dir in @('classes','dex','gen')) {
 foreach ($dir in @('classes','dex','gen\com\ansub\tvhome')) {
     New-Item -ItemType Directory -Force (Join-Path $out $dir) | Out-Null
 }
-# Only this generated manifest changes identity. The upstream-compatible manifest is preserved.
+# Keep the tested app identity/signature so promotion retains its preferences and grants.
+# Only this generated manifest changes the local variant; the upstream manifest is preserved.
 [xml]$manifest = Get-Content -LiteralPath 'AndroidManifest.xml' -Raw
 $ns = 'http://schemas.android.com/apk/res/android'
 $manifest.manifest.SetAttribute('package', $Package)
-$manifest.manifest.SetAttribute('versionName', $ns, '1.5.7-header-preview.8')
-$manifest.manifest.application.SetAttribute('label', $ns, 'TV Detox Anteprima')
-$manifest.manifest.application.SetAttribute('debuggable', $ns, 'true')
+$manifest.manifest.SetAttribute('versionName', $ns, $(if ($AsHome) { '1.5.7-custom.1' } else { '1.5.7-header-preview.8' }))
+$manifest.manifest.application.SetAttribute('label', $ns, $(if ($AsHome) { 'TV Detox' } else { 'TV Detox Anteprima' }))
+$manifest.manifest.application.SetAttribute('debuggable', $ns, $(if ($AsHome) { 'false' } else { 'true' }))
 foreach ($node in $manifest.SelectNodes('//activity|//service')) {
     $name = $node.GetAttribute('name', $ns)
     if ($name.StartsWith('.')) { $node.SetAttribute('name', $ns, "com.ansub.tvhome$name") }
 }
 foreach ($filter in @($manifest.SelectNodes('//intent-filter'))) {
     $homeCategories = @($filter.SelectNodes('category') | Where-Object { $_.GetAttribute('name', $ns) -eq 'android.intent.category.HOME' })
-    if ($homeCategories.Count -gt 0) { $null = $filter.ParentNode.RemoveChild($filter) }
+    if (-not $AsHome -and $homeCategories.Count -gt 0) { $null = $filter.ParentNode.RemoveChild($filter) }
 }
 $manifest.Save((Join-Path $out 'AndroidManifest.xml'))
 $apps = Get-Content 'apps.txt' | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
@@ -59,6 +63,6 @@ $key = Join-Path (Get-Location) 'key.jks'
 if (-not (Test-Path $key)) {
     Run 'keytool' @('-genkeypair','-keystore',$key,'-storepass','tvhome123','-keypass','tvhome123','-alias','tvhome','-keyalg','RSA','-keysize','2048','-validity','10000','-dname','CN=TV Detox Local Preview')
 }
-Run "$bt\apksigner.bat" @('sign','--ks',$key,'--ks-pass','pass:tvhome123','--out',"$out\tvhome-header-preview.apk","$out\aligned.apk")
-Run "$bt\apksigner.bat" @('verify','--print-certs',"$out\tvhome-header-preview.apk")
-Write-Output "Preview APK: $out\tvhome-header-preview.apk"
+Run "$bt\apksigner.bat" @('sign','--ks',$key,'--ks-pass','pass:tvhome123','--out',"$out\$apkName","$out\aligned.apk")
+Run "$bt\apksigner.bat" @('verify','--print-certs',"$out\$apkName")
+Write-Output "Local $variant APK: $out\$apkName"
